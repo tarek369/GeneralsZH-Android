@@ -85,13 +85,18 @@ if [[ -f "${APP}/Frameworks/libopenal.1.24.2.dylib" ]]; then
     mv "${APP}/Frameworks/libopenal.1.24.2.dylib" "${APP}/Frameworks/libopenal.1.dylib"
 fi
 
-# MoltenVK: DXVK dlopens @executable_path/Frameworks/MoltenVK.framework/MoltenVK
-MVK_FRAMEWORK="/tmp/MoltenVK/MoltenVK/dynamic/MoltenVK.xcframework/ios-arm64/MoltenVK.framework"
+# MoltenVK: DXVK dlopens @executable_path/Frameworks/MoltenVK.framework/MoltenVK.
+# An app without it launches and dies at Vulkan init, so missing framework is fatal.
+# (This used to live in /tmp, which the OS periodically cleans — hence the hard error.)
+MVK_FRAMEWORK="${GX_MOLTENVK:-${HOME}/GeneralsX/MoltenVK/MoltenVK/MoltenVK/dynamic/MoltenVK.xcframework/ios-arm64/MoltenVK.framework}"
 if [[ -d "${MVK_FRAMEWORK}" ]]; then
     cp -R "${MVK_FRAMEWORK}" "${APP}/Frameworks/"
     echo "    embedded MoltenVK.framework"
 else
-    echo "WARNING: MoltenVK.framework not found at ${MVK_FRAMEWORK}"
+    echo "ERROR: MoltenVK.framework not found at ${MVK_FRAMEWORK}"
+    echo "  Download MoltenVK-ios.tar from https://github.com/KhronosGroup/MoltenVK/releases"
+    echo "  and extract it under ~/GeneralsX/MoltenVK (or set GX_MOLTENVK)."
+    exit 1
 fi
 
 # Game assets inside the bundle (iOS-sanctioned home for read-only resources):
