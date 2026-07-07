@@ -28,6 +28,133 @@ if(SAGE_USE_DX8)
   FetchContent_MakeAvailable(dx8)
   message(STATUS "Using DirectX 8 SDK (Windows native)")
 
+elseif(ANDROID)
+  # GeneralsX @feature android-port 06/07/2026
+  # Android: build DXVK from source via Meson + the NDK aarch64 toolchain.
+  #
+  # DXVK has never shipped an Android build upstream; this branch, plus
+  # Patches/dxvk-android.patch (gate -msse behind x86; high-DPI SDL3 WSI fix),
+  # is the native non-Wine build path that already works on Linux/iOS, retargeted
+  # to Android aarch64. libvulkan.so is a real system library on Android (API 24+),
+  # so unlike iOS there is no MoltenVK to fetch/embed/patch.
+  find_program(MESON_EXECUTABLE meson HINTS /usr/local/bin /opt/homebrew/bin)
+  find_program(NINJA_EXECUTABLE ninja HINTS /usr/local/bin /opt/homebrew/bin)
+  if(NOT MESON_EXECUTABLE)
+    message(FATAL_ERROR "DXVK Android build requires meson: brew install meson")
+  endif()
+  if(NOT NINJA_EXECUTABLE)
+    message(FATAL_ERROR "DXVK Android build requires ninja: brew install ninja")
+  endif()
+
+  include(ExternalProject)
+  set(DXVK_LOCAL_FORK_DIR "${CMAKE_SOURCE_DIR}/references/fbraz3-dxvk")
+  option(SAGE_DXVK_USE_LOCAL_FORK "Build DXVK from local references/fbraz3-dxvk checkout" OFF)
+
+  if(NOT DEFINED ANDROID_NDK AND DEFINED ENV{ANDROID_NDK_HOME})
+    set(ANDROID_NDK "$ENV{ANDROID_NDK_HOME}")
+  endif()
+  if(NOT ANDROID_NDK)
+    message(FATAL_ERROR "DXVK Android build requires ANDROID_NDK (or ANDROID_NDK_HOME) pointing at the NDK install.")
+  endif()
+  if(NOT DEFINED ANDROID_PLATFORM OR ANDROID_PLATFORM STREQUAL "")
+    set(ANDROID_PLATFORM "android-24")
+  endif()
+  # Strip the "android-" prefix for the NDK's clang wrapper name (aarch64-linux-android24-clang).
+  string(REGEX REPLACE "^android-" "" DXVK_ANDROID_API "${ANDROID_PLATFORM}")
+
+  # The NDK prebuilt host-tag (darwin-x86_64 on macOS, linux-x86_64 on Linux).
+  if(APPLE)
+    set(NDK_HOST_TAG "darwin-x86_64")
+  else()
+    set(NDK_HOST_TAG "linux-x86_64")
+  endif()
+
+  # Generate the meson cross-file from the template.
+  configure_file(${CMAKE_SOURCE_DIR}/cmake/meson-android-aarch64-cross.ini.in
+                 ${CMAKE_BINARY_DIR}/meson-android-aarch64-cross.ini @ONLY)
+
+  if(SAGE_DXVK_USE_LOCAL_FORK AND EXISTS "${DXVK_LOCAL_FORK_DIR}/.git")
+    set(DXVK_SOURCE_DIR "${DXVK_LOCAL_FORK_DIR}")
+    # Apply the Android patch idempotently (same pattern as the iOS patch).
+    execute_process(
+      COMMAND git -C "${DXVK_LOCAL_FORK_DIR}" apply --reverse --check "${CMAKE_SOURCE_DIR}/Patches/dxvk-android.patch"
+      RESULT_VARIABLE DXVK_PATCH_ALREADY_APPLIED
+      ERROR_QUIET)
+    if(NOT DXVK_PATCH_ALREADY_APPLIED EQUAL 0)
+      execute_process(
+        COMMAND git -C "${DXVK_LOCAL_FORK_DIR}" apply "${CMAKE_SOURCE_DIR}/Patches/dxvk-android.patch"
+        RESULT_VARIABLE DXVK_PATCH_RESULT)
+      if(NOT DXVK_PATCH_RESULT EQUAL 0)
+        message(FATAL_ERROR "Failed to apply Patches/dxvk-android.patch to references/fbraz3-dxvk.")
+      endif()
+      message(STATUS "DXVK Android: applied Patches/dxvk-android.patch")
+    else()
+      message(STATUS "DXVK Android: Patches/dxvk-android.patch already applied")
+    endif()
+  else()
+    message(FATAL_ERROR "Android DXVK requires the local fork submodule. Run: git submodule update --init references/fbraz3-dxvk")
+  endif()
+
+  set(DXVK_BUILD_DIR  "${CMAKE_BINARY_DIR}/_deps/dxvk-build-android")
+  set(DXVK_D3D8_LIB  "${DXVK_BUILD_DIR}/src/d3d8/libdxvk_d3d8.so")
+  set(DXVK_D3D9_LIB  "${DXVK_BUILD_DIR}/src/d3d9/libdxvk_d3d9.so")
+
+  # pkg-config shim for the FetchContent SDL3 (same rationale as the macOS branch).
+  set(DXVK_SDL3_PC_DIR "${CMAKE_BINARY_DIR}/sdl3-pkgconfig")
+  file(WRITE "${DXVK_SDL3_PC_DIR}/sdl3.pc"
+"prefix=${CMAKE_BINARY_DIR}/_deps
+libdir=\${prefix}/sdl3-build
+includedir=\${prefix}/sdl3-src/include
+
+Name: sdl3
+Description: Simple DirectMedia Layer (in-tree FetchContent build)
+Version: 3.4.2
+Libs: -L\${libdir} -lSDL3
+Cflags: -I\${includedir}
+")
+  if(DEFINED ENV{PKG_CONFIG_PATH})
+    set(DXVK_PKG_CONFIG_PATH "${DXVK_SDL3_PC_DIR}:$ENV{PKG_CONFIG_PATH}")
+  else()
+    set(DXVK_PKG_CONFIG_PATH "${DXVK_SDL3_PC_DIR}")
+  endif()
+  set(DXVK_PKG_CONFIG_ENV "PKG_CONFIG_PATH=${DXVK_PKG_CONFIG_PATH}")
+
+  ExternalProject_Add(dxvk_android_build
+    SOURCE_DIR        ${DXVK_SOURCE_DIR}
+    BINARY_DIR        ${DXVK_BUILD_DIR}
+    DOWNLOAD_COMMAND  ""
+    UPDATE_COMMAND    ""
+    PATCH_COMMAND     ""
+    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env "${DXVK_PKG_CONFIG_ENV}"
+                      ${MESON_EXECUTABLE} setup ${DXVK_BUILD_DIR} ${DXVK_SOURCE_DIR}
+                      --cross-file ${CMAKE_BINARY_DIR}/meson-android-aarch64-cross.ini
+                      -Ddxvk_native_wsi=sdl3 --buildtype=release --reconfigure
+    BUILD_COMMAND     ${NINJA_EXECUTABLE} -C ${DXVK_BUILD_DIR} src/d3d9/libdxvk_d3d9.so src/d3d8/libdxvk_d3d8.so
+    INSTALL_COMMAND   ""
+    UPDATE_DISCONNECTED TRUE
+  )
+
+  add_custom_command(
+    OUTPUT  "${CMAKE_BINARY_DIR}/libdxvk_d3d9.so"
+            "${CMAKE_BINARY_DIR}/libdxvk_d3d8.so"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              ${DXVK_D3D9_LIB} "${CMAKE_BINARY_DIR}/libdxvk_d3d9.so"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              ${DXVK_D3D8_LIB} "${CMAKE_BINARY_DIR}/libdxvk_d3d8.so"
+    DEPENDS dxvk_android_build
+    COMMENT "Installing libdxvk_d3d8 + libdxvk_d3d9 (.so) to build directory"
+  )
+  add_custom_target(dxvk_d3d8_install ALL
+    DEPENDS "${CMAKE_BINARY_DIR}/libdxvk_d3d8.so"
+            "${CMAKE_BINARY_DIR}/libdxvk_d3d9.so"
+  )
+
+  set(DXVK_INCLUDE_DIR "${DXVK_SOURCE_DIR}/include/native" CACHE PATH "DXVK native headers")
+  set(dxvk_SOURCE_DIR "${DXVK_SOURCE_DIR}" CACHE PATH "DXVK source directory (Android)")
+  message(STATUS "Building DXVK ${DXVK_VERSION} for Android aarch64 with Meson (${MESON_EXECUTABLE})")
+  message(STATUS "DXVK source directory: ${DXVK_SOURCE_DIR}")
+  message(STATUS "DXVK d3d8 library:     ${DXVK_D3D8_LIB}")
+
 elseif(APPLE AND SAGE_USE_MOLTENVK)
   # macOS: Build DXVK 2.6 from source using Meson + MoltenVK
   # GeneralsX @build BenderAI 24/02/2026 - Phase 5 macOS port (Session 61)

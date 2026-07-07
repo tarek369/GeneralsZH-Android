@@ -70,6 +70,13 @@ endif()
 # On Linux: DXVK headers (for D3D8→Vulkan translation)
 include(cmake/dx8.cmake)
 
+# GeneralsX @feature android-port 06/07/2026 Android deps (GLM, GLI) via FetchContent
+# since vcpkg is unavailable on Android. Also force-enable GLM so CompatLib is happy.
+if(ANDROID)
+    set(SAGE_USE_GLM ON CACHE BOOL "" FORCE)
+    include(cmake/android-deps.cmake)
+endif()
+
 # SDL3 windowing/input for Linux builds (Phase 1)
 # GeneralsX @build BenderAI 11/02/2026
 if(SAGE_USE_SDL3)
@@ -102,6 +109,10 @@ include(cmake/curl.cmake)
 # https://github.com/TheSuperHackers/GeneralsGameCode/pull/2670
 # Self-guarded with if(SAGE_USE_DETERMINISTIC_MATH), so always safe to include.
 include(cmake/gamemath.cmake)
+
+# GeneralsX @feature android-port 06/07/2026 Freetype for Android (vcpkg is not
+# available on Android; build from source via FetchContent like SDL3/OpenAL).
+include(cmake/freetype.cmake)
 
 if (IS_VS6_BUILD)
     # The original max sdk does not compile against a modern compiler.

@@ -1,0 +1,78 @@
+diff --git a/meson.build b/meson.build
+index 26afed45..abeacd3d 100644
+--- a/meson.build
++++ b/meson.build
+@@ -10,10 +10,6 @@ cc = meson.get_compiler('c')
+ dxvk_is_msvc = cpp.get_argument_syntax() == 'msvc'
+ 
+ compiler_args = [
+-  '-msse',
+-  '-msse2',
+-  '-msse3',
+-  '-mfpmath=sse',
+   '-Wimplicit-fallthrough',
+   # gcc
+   '-Wno-missing-field-initializers',
+@@ -28,6 +24,16 @@ compiler_args = [
+   '-Wno-missing-braces',
+ ]
+ 
++# GeneralsX @build android-port 06/07/2026 Gate x86-only SSE flags behind x86.
++# Upstream applied -msse/-msse2/-msse3/-mfpmath=sse UNCONDITIONALLY in the
++# compiler_args array above; aarch64 clang (Android NDK, iOS) rejects
++# -mfpmath=sse with "the 'sse' unit is not supported with this instruction set".
++# DXVK's util_bit.h already has a __aarch64__ NEON branch, so the bitops are
++# ARM-ready — only the compiler flags were wrong.
++if cpu_family == 'x86' or cpu_family == 'x86_64'
++  compiler_args += ['-msse', '-msse2', '-msse3', '-mfpmath=sse']
++endif
++
+ link_args = []
+ 
+ if get_option('build_id')
+diff --git a/src/wsi/sdl3/wsi_platform_sdl3.cpp b/src/wsi/sdl3/wsi_platform_sdl3.cpp
+index 9975cdac..6c9309a9 100644
+--- a/src/wsi/sdl3/wsi_platform_sdl3.cpp
++++ b/src/wsi/sdl3/wsi_platform_sdl3.cpp
+@@ -15,6 +15,10 @@ namespace dxvk::wsi {
+         "SDL3.dll"
+ #elif defined(__APPLE__)
+         "libSDL3.0.dylib"
++#elif defined(__ANDROID__)
++        // GeneralsX @build android-port 06/07/2026 Android packs the unversioned
++        // soname (libSDL3.so) in the APK; the ".so.0" Linux name does not exist.
++        "libSDL3.so"
+ #else
+         "libSDL3.so.0"
+ #endif
+diff --git a/src/wsi/sdl3/wsi_platform_sdl3_funcs.h b/src/wsi/sdl3/wsi_platform_sdl3_funcs.h
+index 624c2193..feb5f61a 100644
+--- a/src/wsi/sdl3/wsi_platform_sdl3_funcs.h
++++ b/src/wsi/sdl3/wsi_platform_sdl3_funcs.h
+@@ -9,6 +9,7 @@ SDL_PROC(bool, SDL_GetClosestFullscreenDisplayMode, (SDL_DisplayID, int, int, fl
+ SDL_PROC(SDL_DisplayID, SDL_GetDisplayForWindow, (SDL_Window*))
+ SDL_PROC(SDL_WindowFlags, SDL_GetWindowFlags, (SDL_Window *))
+ SDL_PROC(bool, SDL_GetWindowSize, (SDL_Window*, int*, int*))
++SDL_PROC(bool, SDL_GetWindowSizeInPixels, (SDL_Window*, int*, int*))
+ SDL_PROC(bool, SDL_SetWindowSize, (SDL_Window*, int, int))
+ SDL_PROC(bool, SDL_SetWindowPosition, (SDL_Window*, int, int))
+ SDL_PROC(bool, SDL_SetWindowFullscreen, (SDL_Window*, bool))
+diff --git a/src/wsi/sdl3/wsi_window_sdl3.cpp b/src/wsi/sdl3/wsi_window_sdl3.cpp
+index 10fca478..e4714c29 100644
+--- a/src/wsi/sdl3/wsi_window_sdl3.cpp
++++ b/src/wsi/sdl3/wsi_window_sdl3.cpp
+@@ -22,8 +22,12 @@ namespace dxvk::wsi {
+     int w = 0;
+     int h = 0;
+ 
+-    if (!SDL_GetWindowSize(window, &w, &h))
+-      Logger::err(str::format("SDL3 WSI: SDL_GetWindowSize: ", SDL_GetError()));
++    // Pixels, not points: on high-DPI displays (Android tablets, iOS high-pixel-
++    // density windows) the surface's drawable is scale-factor larger than the
++    // logical window. Sizing the swapchain in points leaves it rendering into a
++    // corner of the surface. Identical to points wherever no scale factor applies.
++    if (!SDL_GetWindowSizeInPixels(window, &w, &h))
++      Logger::err(str::format("SDL3 WSI: SDL_GetWindowSizeInPixels: ", SDL_GetError()));
+ 
+     if (pWidth)
+       *pWidth = uint32_t(w);

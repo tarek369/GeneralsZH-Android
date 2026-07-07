@@ -278,6 +278,43 @@
             "environment": {
                 "PKG_CONFIG_PATH": ""
             }
+        },
+        {
+            "name": "android-vulkan",
+            "displayName": "Android (Vulkan + SDL3 + OpenAL) arm64-v8a Tablet",
+            "inherits": "default-vcpkg",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "description": "GeneralsX @feature android-port 06/07/2026 Android tablet port: arm64-v8a with native Vulkan (no MoltenVK) for graphics, SDL3 for windowing/touch, OpenAL (Oboe/AAudio) for audio. Targets Zero Hour only. Requires the Android NDK at $ANDROID_NDK_HOME and the fbraz3-dxvk submodule for the DXVK-from-source build. Native build is driven from android/ via Gradle externalNativeBuild; this preset is used for standalone/native iteration.",
+            "cacheVariables": {
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_SYSTEM_NAME": "Android",
+                "CMAKE_SYSTEM_VERSION": "24",
+                "CMAKE_ANDROID_ARCH_ABI": "arm64-v8a",
+                "CMAKE_ANDROID_NDK": "$env{ANDROID_NDK_HOME}",
+                "CMAKE_ANDROID_STL_TYPE": "c++_shared",
+                "ANDROID_ABI": "arm64-v8a",
+                "ANDROID_PLATFORM": "android-24",
+                "VCPKG_TARGET_TRIPLET": "arm64-android",
+                "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/triplets",
+                "SAGE_USE_DX8": "OFF",
+                "SAGE_USE_SDL3": "ON",
+                "SAGE_USE_OPENAL": "ON",
+                "SAGE_USE_GLM": "ON",
+                "SAGE_DXVK_USE_LOCAL_FORK": "ON",
+                "SAGE_UPDATE_CHECK": "OFF",
+                "RTS_CRASHDUMP_ENABLE": "OFF",
+                "RTS_BUILD_OPTION_FFMPEG": "ON",
+                "RTS_BUILD_OPTION_SAGE_PATCH": "OFF",
+                "RTS_BUILD_GENERALS": "OFF",
+                "RTS_BUILD_CORE_TOOLS": "OFF",
+                "RTS_BUILD_ZEROHOUR_TOOLS": "OFF",
+                "RTS_BUILD_ZEROHOUR_EXTRAS": "OFF"
+            },
+            "environment": {
+                "PKG_CONFIG_PATH": ""
+            }
         }
     ],
     "buildPresets": [

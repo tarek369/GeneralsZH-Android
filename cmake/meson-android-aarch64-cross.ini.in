@@ -1,0 +1,41 @@
+# Meson cross file: build DXVK for Android (arm64-v8a) on a macOS/Linux host.
+# GeneralsX @feature android-port 06/07/2026
+#
+# Targets the Android NDK's LLVM clang toolchain at @ANDROID_NDK@ for API
+# @ANDROID_API@ (arm64-v8a). The NDK ships standalone clang wrappers named
+# aarch64-linux-android<API>-clang that already set the sysroot and API level,
+# so (unlike the iOS cross file) no explicit -isysroot is needed.
+#
+# libvulkan.so is a real system library on Android (API 24+), so unlike iOS
+# there is no MoltenVK to locate — DXVK's vulkan_loader.cpp already lists
+# "libvulkan.so" in its non-Windows dlopen names and will resolve it via the
+# system library search path at runtime.
+#
+# The generated file is consumed by dx8.cmake's Android branch.
+
+[binaries]
+c            = '@ANDROID_NDK@/toolchains/llvm/prebuilt/@NDK_HOST_TAG@/bin/aarch64-linux-android@ANDROID_API@-clang'
+cpp          = '@ANDROID_NDK@/toolchains/llvm/prebuilt/@NDK_HOST_TAG@/bin/aarch64-linux-android@ANDROID_API@-clang++'
+ar           = '@ANDROID_NDK@/toolchains/llvm/prebuilt/@NDK_HOST_TAG@/bin/llvm-ar'
+strip        = '@ANDROID_NDK@/toolchains/llvm/prebuilt/@NDK_HOST_TAG@/bin/llvm-strip'
+pkg-config   = 'pkg-config'
+windres      = ''
+
+[properties]
+needs_exe_wrapper = false
+
+[host_machine]
+system     = 'android'
+cpu_family = 'aarch64'
+cpu        = 'aarch64'
+endian     = 'little'
+
+[built-in options]
+# The NDK clang wrappers set the sysroot + API level, so no -isysroot here.
+# -fPIC is required for code that links into a shared library (libdxvk_d3d8.so
+# is dlopen'd by the Android app). -fno-plt and the default PIE settings are
+# handled by the NDK wrapper.
+c_args       = ['-fPIC', '-DANDROID', '-D__ANDROID__']
+cpp_args     = ['-fPIC', '-DANDROID', '-D__ANDROID__']
+c_link_args  = ['-fPIC']
+cpp_link_args= ['-fPIC']
