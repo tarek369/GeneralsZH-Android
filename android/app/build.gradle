@@ -132,9 +132,15 @@ android {
 
     // Large native lib: do not compress .so in the APK (extractNativeLibs=false
     // keeps them page-aligned so Android can mmap directly from the APK).
+    // GeneralsX @build android-port 07/07/2026 Do NOT strip debug symbols
+    // from the release .so libs. DXVK's libdxvk_d3d8/d3d9.so crash when
+    // stripped — the symbol table is needed for the Vulkan dispatch tables
+    // to resolve correctly. This disables AGP's stripReleaseDebugSymbols task.
     packagingOptions {
         jniLibs {
             useLegacyPackaging false
+            // Keep DXVK libs intact — stripping them breaks Vulkan dispatch.
+            keepDebugSymbols += ['**/libdxvk_d3d8.so', '**/libdxvk_d3d9.so']
         }
     }
 }
