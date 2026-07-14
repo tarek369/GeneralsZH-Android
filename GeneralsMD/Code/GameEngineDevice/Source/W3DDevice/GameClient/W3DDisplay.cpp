@@ -598,6 +598,18 @@ static bool s_filteredDirty = true;
 static void buildFilteredResolutions()
 {
 	s_filteredResolutions.clear();
+#if defined(__ANDROID__)
+	// GeneralsX @bugfix android-port 14/07/2026 Android has a fixed display
+	// resolution — there are no desktop display modes to enumerate. The DX8
+	// device's Enumerate_Resolutions() returns garbage/null on mobile, causing
+	// a null-pointer crash when the Settings menu tries to list resolutions.
+	// Just return a single safe mode — the Settings menu needs at least one
+	// entry to not crash. The actual resolution is controlled by the engine's
+	// -xres/-yres command-line flags set in SDL3Main.cpp.
+	s_filteredResolutions.push_back({1024, 768, 32});
+	s_filteredDirty = false;
+	return;
+#endif
 	const RenderDeviceDescClass &devDesc = WW3D::Get_Render_Device_Desc(0);
 	const DynamicVectorClass<ResolutionDescClass> &resolutions = devDesc.Enumerate_Resolutions();
 

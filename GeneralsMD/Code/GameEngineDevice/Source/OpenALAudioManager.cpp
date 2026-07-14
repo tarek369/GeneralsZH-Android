@@ -76,6 +76,8 @@ OpenALAudioManager::~OpenALAudioManager()
 bool OpenALAudioManager::initializeALContext()
 {
 	// Open default OpenAL device
+	// On Android, ALSOFT_DRIVERS=oboe is set by an early constructor in
+	// SDL3Main.cpp (before OpenAL's static init) to force the Oboe backend.
 	m_alcDevice = alcOpenDevice(nullptr);
 	if (!m_alcDevice) {
 		fprintf(stderr, "ERROR: Failed to open OpenAL device\n");

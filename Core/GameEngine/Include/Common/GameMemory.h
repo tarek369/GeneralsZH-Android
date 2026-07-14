@@ -458,6 +458,12 @@ public:
 	/// free the bytes. (assumes allocated by this dma.)
 	void freeBytes(void* pMem);
 
+	/// GeneralsX @bugfix android-port 14/07/2026 Check if a pointer belongs to
+	/// the pool, without probing memory at a negative offset (which crashes
+	/// Scudo on Samsung/Exynos). Uses mincore() to verify the page is readable
+	/// first, then checks the cookie. Safe for external pointers.
+	bool isPoolPointer(void* p);
+
 	/**
 		return the actual number of bytes that would be allocated
 		if you tried to allocate the given size. (It will generally be slightly

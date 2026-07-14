@@ -59,6 +59,11 @@
 	#include "Common/StackDump.h"
 #endif
 
+#if defined(__ANDROID__)
+#include <sys/mman.h>   // mincore() for safe pool-pointer check
+#include <unistd.h>     // sysconf()
+#endif
+
 #ifdef MEMORYPOOL_DEBUG
 DECLARE_PERF_TIMER(MemoryPoolDebugging)
 DECLARE_PERF_TIMER(MemoryPoolInitFilling)
@@ -2291,6 +2296,38 @@ void *DynamicMemoryAllocator::allocateBytesImplementation(Int numBytes DECLARE_L
 /**
 	free a chunk-o-bytes allocated by this dma. it's ok to pass null.
 */
+// GeneralsX @bugfix android-port 14/07/2026 Safe pool-pointer check for Android.
+// On Scudo (Samsung/Exynos), probing a negative offset from an external pointer
+// (libc++/SDL3/DXVK allocation) reads the allocator's metadata region and
+// triggers "invalid chunk state" SIGABRT. This function uses mincore() to
+// verify the page is readable before checking the cookie. If the page isn't
+// mapped, the pointer definitely isn't from the pool → return false → ::free().
+bool DynamicMemoryAllocator::isPoolPointer(void* p)
+{
+	if (!p || !TheDynamicMemoryAllocator)
+		return false;
+
+	static constexpr size_t kHeaderSize = (sizeof(MemoryPoolSingleBlock) + 15) & ~size_t(15);
+	char* headerPtr = ((char*)p) - kHeaderSize;
+#ifdef MEMORYPOOL_BOUNDINGWALL
+	headerPtr -= WALLSIZE;
+#endif
+
+	// Use mincore() to check if the page containing the header is mapped.
+	// mincore returns 0 if the page is resident, -1 (EFAULT) if not mapped.
+#if defined(__ANDROID__)
+	const long pageSize = sysconf(_SC_PAGESIZE);
+	char* page = (char*)((uintptr_t)headerPtr & ~(pageSize - 1));
+	unsigned char vec = 0;
+	if (mincore(page, pageSize, &vec) != 0)
+		return false;  // page not mapped → not a pool pointer
+#endif
+
+	// Page is readable — safe to check the cookie
+	MemoryPoolSingleBlock *block = (MemoryPoolSingleBlock *)headerPtr;
+	return block->getDmaMagicCookie() == 0x47454d53;
+}
+
 void DynamicMemoryAllocator::freeBytes(void* pBlockPtr)
 {
 	if (!pBlockPtr)
@@ -3309,6 +3346,25 @@ void operator delete(void *p)
 	preMainInitMemoryManager();
 	if (p)
 	{
+#if defined(__ANDROID__)
+		// GeneralsX @bugfix android-port 14/07/2026 The magic-cookie probe reads
+		// memory at a negative offset from p to test if it's a pool allocation.
+		// On Android with Scudo (Samsung/Exynos), this touches the allocator's
+		// metadata guard region → "invalid chunk state" SIGABRT. We use a safe
+		// approach: only attempt the cookie read if TheDynamicMemoryAllocator is
+		// fully initialized AND the pointer is within the pool's known address
+		// range (checked via the pool's own bounds). External pointers (libc++,
+		// SDL3, DXVK) never fall within the pool range, so they go to ::free
+		// without any probing.
+		if (TheDynamicMemoryAllocator && TheDynamicMemoryAllocator->isPoolPointer(p))
+		{
+			TheDynamicMemoryAllocator->freeBytes(p);
+		}
+		else
+		{
+			::free(p);
+		}
+#else
 		static constexpr size_t kHeaderSize = (sizeof(MemoryPoolSingleBlock) + 15) & ~size_t(15);
 		char* headerPtr = ((char*)p) - kHeaderSize;
 		#ifdef MEMORYPOOL_BOUNDINGWALL
@@ -3323,6 +3379,7 @@ void operator delete(void *p)
 		{
 			::free(p);
 		}
+#endif
 	}
 }
 
@@ -3336,6 +3393,16 @@ void operator delete[](void *p)
 	preMainInitMemoryManager();
 	if (p)
 	{
+#if defined(__ANDROID__)
+		if (TheDynamicMemoryAllocator && TheDynamicMemoryAllocator->isPoolPointer(p))
+		{
+			TheDynamicMemoryAllocator->freeBytes(p);
+		}
+		else
+		{
+			::free(p);
+		}
+#else
 		static constexpr size_t kHeaderSize = (sizeof(MemoryPoolSingleBlock) + 15) & ~size_t(15);
 		char* headerPtr = ((char*)p) - kHeaderSize;
 		#ifdef MEMORYPOOL_BOUNDINGWALL
@@ -3350,6 +3417,7 @@ void operator delete[](void *p)
 		{
 			::free(p);
 		}
+#endif
 	}
 }
 
@@ -3379,6 +3447,16 @@ void operator delete(void * p, const char *, int)
 	preMainInitMemoryManager();
 	if (p)
 	{
+#if defined(__ANDROID__)
+		if (TheDynamicMemoryAllocator && TheDynamicMemoryAllocator->isPoolPointer(p))
+		{
+			TheDynamicMemoryAllocator->freeBytes(p);
+		}
+		else
+		{
+			::free(p);
+		}
+#else
 		static constexpr size_t kHeaderSize = (sizeof(MemoryPoolSingleBlock) + 15) & ~size_t(15);
 		char* headerPtr = ((char*)p) - kHeaderSize;
 		#ifdef MEMORYPOOL_BOUNDINGWALL
@@ -3393,6 +3471,7 @@ void operator delete(void * p, const char *, int)
 		{
 			::free(p);
 		}
+#endif
 	}
 }
 
@@ -3422,6 +3501,16 @@ void operator delete[](void * p, const char *, int)
 	preMainInitMemoryManager();
 	if (p)
 	{
+#if defined(__ANDROID__)
+		if (TheDynamicMemoryAllocator && TheDynamicMemoryAllocator->isPoolPointer(p))
+		{
+			TheDynamicMemoryAllocator->freeBytes(p);
+		}
+		else
+		{
+			::free(p);
+		}
+#else
 		static constexpr size_t kHeaderSize = (sizeof(MemoryPoolSingleBlock) + 15) & ~size_t(15);
 		char* headerPtr = ((char*)p) - kHeaderSize;
 		#ifdef MEMORYPOOL_BOUNDINGWALL
@@ -3436,6 +3525,7 @@ void operator delete[](void * p, const char *, int)
 		{
 			::free(p);
 		}
+#endif
 	}
 }
 

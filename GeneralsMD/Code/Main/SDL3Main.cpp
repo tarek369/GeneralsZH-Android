@@ -61,6 +61,18 @@
 #include <string>
 #endif
 #include <cstdlib>
+
+#if defined(__ANDROID__)
+// GeneralsX @bugfix android-port 07/07/2026 Force OpenAL Soft to use the Oboe
+// backend on Android. By default, OpenAL's init gives the "null" backend
+// (a no-output sink) priority, producing no audio. Setting ALSOFT_DRIVERS=oboe
+// before alcOpenDevice forces it to use Oboe (AAudio/OpenSL ES).
+// This runs in main() before any OpenAL call — safe and reliable.
+static void gx_force_oboe_audio_backend()
+{
+	setenv("ALSOFT_DRIVERS", "oboe", 1);
+}
+#endif
 #include <cctype>
 #include <cstring>
 #include <cstdio>
@@ -273,6 +285,10 @@ int main(int argc, char* argv[])
 	int exitcode = 1;
 
 #if defined(__ANDROID__)
+	// GeneralsX @bugfix android-port 07/07/2026 Force Oboe backend before
+	// anything else runs. Must be the very first call in main() so OpenAL
+	// picks up ALSOFT_DRIVERS when it initializes its backends.
+	gx_force_oboe_audio_backend();
 	__android_log_print(ANDROID_LOG_INFO, "GeneralsX", "=== SDL_main entered ===");
 #endif
 
@@ -708,7 +724,17 @@ int main(int argc, char* argv[])
 
 		// Create SDL3 window with Vulkan support
 		fprintf(stderr, "INFO: Creating SDL3 Vulkan window...\n");
+		// GeneralsX @bugfix android-port 08/07/2026 On Android, the window MUST
+		// NOT start hidden. A hidden SDL window has no ANativeWindow attached
+		// (Android only creates the Surface for visible windows), which causes
+		// CreateAndroidSurfaceKHR to dereference null (fault addr 0x98) when
+		// DXVK tries to create the Vulkan swapchain surface. On desktop the
+		// hidden flag avoids a flash before D3D init; on mobile it's fatal.
+#if defined(__ANDROID__)
+		Uint32 windowFlags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE;
+#else
 		Uint32 windowFlags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN;  // Start hidden, show after D3D init
+#endif
 #ifdef SAGE_MOBILE
 		// Request a native-resolution drawable (e.g. 2868x1320 instead of the
 		// 956x440 point size). Without this the swapchain renders at point size and
@@ -730,6 +756,38 @@ int main(int argc, char* argv[])
 		// Store window handle globally (cast SDL_Window* to HWND for compatibility)
 		ApplicationHWnd = (HWND)TheSDL3Window;
 		fprintf(stderr, "INFO: SDL3 window created successfully\n");
+
+#if defined(__ANDROID__)
+		// GeneralsX @bugfix android-port 08/07/2026 Wait for the Android Surface
+		// to be attached to the SDL window before proceeding. On Android, the
+		// ANativeWindow is delivered asynchronously from the Java side via
+		// surfaceChanged(). If the engine reaches CreateDevice (which calls
+		// SDL_Vulkan_CreateSurface → CreateAndroidSurfaceKHR) before the
+		// ANativeWindow is ready, the Vulkan driver dereferences null and crashes
+		// (fault addr 0x98). Poll SDL events until the window has a valid surface
+		// or timeout after 5 seconds.
+		{
+			SDL_PropertiesID props = SDL_GetWindowProperties(TheSDL3Window);
+			void *nativeWin = nullptr;
+			int waitMs = 0;
+			while (waitMs < 5000) {
+				nativeWin = SDL_GetPointerProperty(props,
+					SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
+				if (nativeWin) break;
+				SDL_Event ev;
+				while (SDL_PollEvent(&ev)) { /* drain */ }
+				SDL_Delay(50);
+				waitMs += 50;
+			}
+			if (nativeWin) {
+				__android_log_print(ANDROID_LOG_INFO, "GeneralsX",
+					"ANativeWindow ready after %dms", waitMs);
+			} else {
+				__android_log_print(ANDROID_LOG_WARN, "GeneralsX",
+					"ANativeWindow NOT ready after 5000ms — CreateDevice may crash");
+			}
+		}
+#endif
 
 #ifdef SAGE_MOBILE
 		// Match the game's internal resolution to the screen's aspect ratio.

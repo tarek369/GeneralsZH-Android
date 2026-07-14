@@ -270,11 +270,32 @@ if(SAGE_USE_OPENAL)
     )
     # FFmpegFile.cpp is required by OpenALAudioCache for audio decoding;
     # add it here when RTS_BUILD_OPTION_FFMPEG has not already provided it.
-    # GeneralsX @feature android-port 06/07/2026 Android has no ffmpeg yet; use
-    # the stub implementation so the engine links (audio is silent until ffmpeg
-    # is hand-built for Android).
+    # GeneralsX @feature android-port 08/07/2026 Android now has a hand-built
+    # FFmpeg (scripts/build/android/build-ffmpeg-android.sh). When found at
+    # SAGE_ANDROID_FFMPEG_DIR, use the real FFmpegFile.cpp instead of the stub.
     if(NOT RTS_BUILD_OPTION_FFMPEG)
-        if(ANDROID)
+        if(ANDROID AND DEFINED SAGE_ANDROID_FFMPEG_DIR AND EXISTS "${SAGE_ANDROID_FFMPEG_DIR}/include/libavcodec/avcodec.h")
+            # Real FFmpeg built for Android arm64 — use the real decoder
+            message(STATUS "Android FFmpeg found at ${SAGE_ANDROID_FFMPEG_DIR} — audio decoding enabled")
+            target_sources(corei_gameenginedevice_private INTERFACE
+                Include/VideoDevice/FFmpeg/FFmpegFile.h
+                Include/VideoDevice/FFmpeg/FFmpegVideoPlayer.h
+                Source/VideoDevice/FFmpeg/FFmpegFile.cpp
+                Source/VideoDevice/FFmpeg/FFmpegVideoPlayer.cpp
+            )
+            target_include_directories(corei_gameenginedevice_private INTERFACE
+                ${SAGE_ANDROID_FFMPEG_DIR}/include
+            )
+            target_link_libraries(corei_gameenginedevice_private INTERFACE
+                ${SAGE_ANDROID_FFMPEG_DIR}/lib/libavcodec.so
+                ${SAGE_ANDROID_FFMPEG_DIR}/lib/libavformat.so
+                ${SAGE_ANDROID_FFMPEG_DIR}/lib/libavutil.so
+                ${SAGE_ANDROID_FFMPEG_DIR}/lib/libswresample.so
+                ${SAGE_ANDROID_FFMPEG_DIR}/lib/libswscale.so
+            )
+            target_compile_definitions(corei_gameenginedevice_public INTERFACE RTS_HAS_FFMPEG)
+        elseif(ANDROID)
+            # No FFmpeg — use the stub (audio will be silent)
             target_sources(corei_gameenginedevice_private INTERFACE
                 Source/VideoDevice/FFmpeg/FFmpegFileStub.cpp
             )

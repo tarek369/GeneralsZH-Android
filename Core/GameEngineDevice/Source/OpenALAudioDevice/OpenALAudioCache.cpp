@@ -1,7 +1,8 @@
 #include "OpenALAudioCache.h"
 
-// GeneralsX @feature android-port 06/07/2026 FFmpeg stub for Android.
-#if defined(__ANDROID__)
+// GeneralsX @feature android-port 08/07/2026 Use real FFmpeg on Android when
+// available (RTS_HAS_FFMPEG), otherwise fall back to the stub.
+#if defined(__ANDROID__) && !defined(RTS_HAS_FFMPEG)
 #include "VideoDevice/FFmpeg/FFmpegAndroidStub.h"
 #else
 extern "C" {

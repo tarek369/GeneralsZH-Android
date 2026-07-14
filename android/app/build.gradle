@@ -140,7 +140,7 @@ android {
         jniLibs {
             useLegacyPackaging false
             // Keep DXVK libs intact — stripping them breaks Vulkan dispatch.
-            keepDebugSymbols += ['**/libdxvk_d3d8.so', '**/libdxvk_d3d9.so']
+            keepDebugSymbols += ['**/libdxvk_d3d8.so', '**/libdxvk_d3d9.so', '**/libopenal.so']
         }
     }
 }
